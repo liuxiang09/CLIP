@@ -7,24 +7,25 @@ import torch.nn.functional as F
 from torch import nn
 
 
+# 一个残差块的实现
 class Bottleneck(nn.Module):
-    expansion = 4
+    expansion = 4  # 输出通道数的扩展倍数
 
     def __init__(self, inplanes, planes, stride=1):
         super().__init__()
 
         # all conv layers have stride 1. an avgpool is performed after the second convolution when stride > 1
-        self.conv1 = nn.Conv2d(inplanes, planes, 1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, 1, bias=False)  # 1×1降维
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu1 = nn.ReLU(inplace=True)
 
-        self.conv2 = nn.Conv2d(planes, planes, 3, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, 3, padding=1, bias=False)  # 3×3特征提取
         self.bn2 = nn.BatchNorm2d(planes)
         self.relu2 = nn.ReLU(inplace=True)
 
         self.avgpool = nn.AvgPool2d(stride) if stride > 1 else nn.Identity()
 
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, 1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, 1, bias=False)  # 1×1升维
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
         self.relu3 = nn.ReLU(inplace=True)
 
@@ -124,6 +125,7 @@ class ModifiedResNet(nn.Module):
         self.layer4 = self._make_layer(width * 8, layers[3], stride=2)
 
         embed_dim = width * 32  # the ResNet feature dimension
+        # 最终的池化层，使用 AttentionPool2d 代替了全局平均池化
         self.attnpool = AttentionPool2d(input_resolution // 32, embed_dim, heads, output_dim)
 
     def _make_layer(self, planes, blocks, stride=1):
@@ -156,7 +158,7 @@ class ModifiedResNet(nn.Module):
 
 class LayerNorm(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16."""
-
+    """目的是处理fp16数据类型时，计算LayNorm仍使用float32，保证数值稳定性"""
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
         ret = super().forward(x.type(torch.float32))
@@ -165,7 +167,7 @@ class LayerNorm(nn.LayerNorm):
 
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
-        return x * torch.sigmoid(1.702 * x)
+        return x * torch.sigmoid(1.702 * x) # torch.sigmoid(1.702 * x)用于近似标准正态分布
 
 
 class ResidualAttentionBlock(nn.Module):
@@ -192,6 +194,7 @@ class ResidualAttentionBlock(nn.Module):
         return x
 
 
+# 一个包装结构，重点是重复调用 ResidualAttentionBlock 结构
 class Transformer(nn.Module):
     def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
         super().__init__()
@@ -209,7 +212,7 @@ class VisionTransformer(nn.Module):
         self.input_resolution = input_resolution
         self.output_dim = output_dim
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False)
-
+        # width相当于transform中的d_model
         scale = width ** -0.5
         self.class_embedding = nn.Parameter(scale * torch.randn(width))
         self.positional_embedding = nn.Parameter(scale * torch.randn((input_resolution // patch_size) ** 2 + 1, width))
@@ -221,21 +224,22 @@ class VisionTransformer(nn.Module):
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
 
     def forward(self, x: torch.Tensor):
-        x = self.conv1(x)  # shape = [*, width, grid, grid]
+        # x=[1,3,224,224]
+        x = self.conv1(x)  # shape = [*, width, grid, grid], 将图片分成[32,32]个patch[1,768,7,7]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
-        x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
-        x = x + self.positional_embedding.to(x.dtype)
+        x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width] 添加一个 [CLS] token [1,50,7*7]
+        x = x + self.positional_embedding.to(x.dtype) # 可学习的位置编码
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
-        x = self.ln_post(x[:, 0, :])
+        x = self.ln_post(x[:, 0, :]) # 将所有信息汇聚到cls token中，只需前面来做下游任务 [1,768]
 
-        if self.proj is not None:
-            x = x @ self.proj
+        if self.proj is not None: # self.proj是可学习参数，维度为[768,512]
+            x = x @ self.proj  # 通过学习参数将维度再次融合变成512特征，最终为[1,512]
 
         return x
 
