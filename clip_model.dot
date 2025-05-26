@@ -1,0 +1,90 @@
+digraph CLIP_Model_Architecture {
+    rankdir=TB;
+    node [shape=box, style=filled, fillcolor=lightblue];
+
+    CLIP [label="CLIP\n(nn.Module)", fillcolor=lightgreen];
+
+    // CLIP Components
+    CLIP -> Visual_Backbone [label="has"];
+    CLIP -> Text_Backbone [label="has"];
+    CLIP -> logit_scale [label="has"];
+
+    // Visual Backbone - Conditional
+    subgraph cluster_visual {
+        label = "视觉编码器 (Visual Encoder)";
+        style=dashed;
+
+        Visual_Backbone -> ModifiedResNet [label="可以是 (is a)"];
+        Visual_Backbone -> VisionTransformer [label="可以是 (is a)"];
+    }
+
+    // ModifiedResNet Details
+    subgraph cluster_resnet {
+        label = "ModifiedResNet";
+        style=filled;
+        fillcolor=wheat;
+
+        ModifiedResNet -> ResNet_Stem [label="由...组成"];
+        ModifiedResNet -> ResNet_Layers [label="由...组成"];
+        ModifiedResNet -> AttentionPool2d [label="由...组成"];
+    }
+
+    ResNet_Stem [label="Stem\n(3 Conv + AvgPool)"];
+    ResNet_Layers [label="Residual Layers\n(Bottleneck Blocks)"];
+    AttentionPool2d [label="AttentionPool2d"];
+
+
+    // VisionTransformer Details
+    subgraph cluster_vit {
+        label = "VisionTransformer";
+        style=filled;
+        fillcolor=wheat;
+
+        VisionTransformer -> conv1 [label="由...组成"];
+        VisionTransformer -> class_embedding [label="由...组成"];
+        VisionTransformer -> positional_embedding_vit [label="由...组成"];
+        VisionTransformer -> ln_pre [label="由...组成"];
+        VisionTransformer -> Transformer_Visual [label="由...组成"];
+        VisionTransformer -> ln_post [label="由...组成"];
+        VisionTransformer -> proj_vit [label="由...组成"];
+    }
+    conv1 [label="Conv1\n(Patch Embedding)"];
+    class_embedding [label="Class Embedding"];
+    positional_embedding_vit [label="Positional Embedding"];
+    ln_pre [label="LayerNorm (pre-transformer)"];
+    ln_post [label="LayerNorm (post-transformer)"];
+    proj_vit [label="Projection"];
+
+    // Text Backbone Details
+    subgraph cluster_text {
+        label = "文本编码器 (Text Encoder)";
+        style=filled;
+        fillcolor=palegreen;
+
+        Text_Backbone -> token_embedding [label="由...组成"];
+        Text_Backbone -> positional_embedding_text [label="由...组成"];
+        Text_Backbone -> Transformer_Text [label="由...组成"];
+        Text_Backbone -> ln_final [label="由...组成"];
+        Text_Backbone -> text_projection [label="由...组成"];
+    }
+
+    token_embedding [label="Token Embedding"];
+    positional_embedding_text [label="Positional Embedding"];
+    ln_final [label="LayerNorm (final)"];
+    text_projection [label="Text Projection"];
+
+
+    // Transformer Details
+    subgraph cluster_transformer {
+        label = "Transformer";
+        style=filled;
+        fillcolor=pink;
+
+        Transformer_Text; // Declare nodes used in relationships outside this subgraph
+        Transformer_Visual; // Declare nodes used in relationships outside this subgraph
+        ResidualAttentionBlock [label="ResidualAttentionBlock\n(Attention + MLP)"]; // Declare node used in relationships outside this subgraph
+
+        Transformer_Text -> ResidualAttentionBlock [label="由多个组成"];
+        Transformer_Visual -> ResidualAttentionBlock [label="由多个组成"];
+    }
+}

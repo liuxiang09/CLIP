@@ -225,7 +225,7 @@ class VisionTransformer(nn.Module):
 
     def forward(self, x: torch.Tensor):
         # x=[1,3,224,224]
-        x = self.conv1(x)  # shape = [*, width, grid, grid], 将图片分成[32,32]个patch[1,768,7,7]
+        x = self.conv1(x)  # shape = [*, width, grid, grid], 将图片分成[32,32]个patch  [1,768,7,7]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
         x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width] 添加一个 [CLS] token [1,50,7*7]
